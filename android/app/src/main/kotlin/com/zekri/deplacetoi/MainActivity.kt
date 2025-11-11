@@ -1,4 +1,4 @@
-package com.example.deplacetoi
+package com.zekri.deplacetoi
 
 import io.flutter.embedding.android.FlutterActivity
 

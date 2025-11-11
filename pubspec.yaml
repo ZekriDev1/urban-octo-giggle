@@ -38,8 +38,9 @@ dependencies:
   # Supabase for authentication and database
   supabase_flutter: ^2.5.6
   
-  # Maps integration (works on both iOS and Android)
-  google_maps_flutter: ^2.5.3
+  # OpenStreetMap integration (free, no API key required)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
   
   # Location services
   geolocator: ^13.0.1

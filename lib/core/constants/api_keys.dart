@@ -9,7 +9,6 @@ class ApiKeys {
   static const String supabaseUrl = 'https://vbvakuttvxbpftbbtdzn.supabase.co';
   static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZidmFrdXR0dnhicGZ0YmJ0ZHpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTkxMjIsImV4cCI6MjA3ODQ3NTEyMn0.toalaJo7-DViI4qKQzfUwcMP9n7u_HJA1bAhlni5GEs';
   
-  // Google Maps API Key
-  static const String googleMapsApiKey = 'AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao';
+  // OpenStreetMap - No API key required (free and open source)
 }
 
