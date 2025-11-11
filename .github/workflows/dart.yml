@@ -14,26 +14,29 @@ jobs:
         with:
           channel: 'stable'
           architecture: x64
-
       - run: flutter pub get
+      
 
       - run: pod repo update
         working-directory: ios
 
-      # Build app (no signing needed)
       - run: flutter build ios --release --no-codesign
 
-      # Prepare Payload folder for IPA
-      - run: mkdir -p build/ios/iphoneos/Payload
-      - run: mv build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+      - run: mkdir Payload
+        working-directory: build/ios/iphoneos
 
-      # Zip into IPA
-      - name: Zip IPA
-        run: zip -qr build/ios/iphoneos/FlutterIpaExport.ipa build/ios/iphoneos/Payload
+      - run: mv Runner.app/ Payload
+        working-directory: build/ios/iphoneos
 
-      # Upload IPA as artifact
-      - name: Upload IPA
-        uses: actions/upload-artifact@v3
+      - name: Zip output
+        run: zip -qq -r -9 FlutterIpaExport.ipa Payload
+        working-directory: build/ios/iphoneos
+
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
         with:
-          name: FlutterIpa
-          path: build/ios/iphoneos/FlutterIpaExport.ipa
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/ios/iphoneos/FlutterIpaExport.ipa
+          tag: v1.0
+          overwrite: true
+          body: "This is first release"
