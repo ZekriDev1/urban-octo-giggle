@@ -20,7 +20,15 @@ jobs:
       - run: pod repo update
         working-directory: ios
 
-      - run: flutter build ios --release --no-codesign
+      - run: flutter clean
+
+      - name: Build iOS (no code signing)
+        run: flutter build ios --release --no-codesign
+        env:
+          # Disable code signing for CI builds
+          CODE_SIGN_IDENTITY: ""
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGNING_ALLOWED: "NO"
 
       - run: mkdir Payload
         working-directory: build/ios/iphoneos
