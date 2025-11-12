@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
+import '../home/home_screen.dart';
 
 /// Modern login screen with Supabase authentication
 class LoginScreen extends StatefulWidget {
@@ -44,12 +45,9 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (mounted) {
-        // Navigate to home screen (to be implemented)
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Login successful!'),
-            backgroundColor: AppColors.success,
-          ),
+        // Navigate to home screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
       }
     } catch (e) {
