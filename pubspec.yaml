@@ -46,3 +46,11 @@ flutter:
   assets:
     - assets/animations/
     - assets/icons/logo.png
+  
+  fonts:
+    - family: UberMove
+      fonts:
+        - asset: assets/fonts/UberMoveBold.otf
+          weight: 700
+        - asset: assets/fonts/UberMoveMedium.otf
+          weight: 500

@@ -57,10 +57,22 @@ class _SplashScreenState extends State<SplashScreen> {
                 width: 200,
                 height: 200,
                 child: Lottie.asset(
-                  'assets/animations/Animation - 1748773057383.json',
+                  'assets/animations/zqBmErHZt2.json',
                   fit: BoxFit.contain,
                   repeat: true,
                 ),
+              ),
+              const SizedBox(height: 30),
+              // Tagline text
+              Text(
+                'Fast • Cheap • Secure',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.primaryPink,
+                  letterSpacing: 1.5,
+                ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
