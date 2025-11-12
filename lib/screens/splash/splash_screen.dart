@@ -28,18 +28,10 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Make the splash background full white per request
       backgroundColor: AppColors.white,
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.white,
-              AppColors.primaryPink.withOpacity(0.1),
-            ],
-          ),
-        ),
+        color: AppColors.white,
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

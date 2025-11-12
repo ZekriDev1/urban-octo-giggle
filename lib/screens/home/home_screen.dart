@@ -1,725 +1,674 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/constants/app_colors.dart';
-import '../../core/constants/app_constants.dart';
-import 'destination_search_screen.dart';
-import '../auth/login_screen.dart';
+import 'dart:async';
 
-/// Home screen with map, location, and ride booking
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../core/constants/app_colors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../profile/profile_screen.dart';
+import '../payments/payment_screen.dart';
+
+/// Uber-style Home Screen (modern, minimal, functional)
+///
+/// Notes:
+/// - Uses the app's `AppColors.primaryPink` and system font (inherited from app theme).
+/// - This file uses `google_maps_flutter` for native Google Maps (Android/iOS).
+/// - You must configure the Google Maps API key in platform files:
+///   * Android: android/app/src/main/AndroidManifest.xml -> <application>
+///       <meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_API_KEY"/>
+///   * iOS: ios/Runner/AppDelegate.swift -> GMSServices.provideAPIKey("YOUR_API_KEY")
+///
+/// Prototyping key provided (DO NOT ship with this key):
+/// AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao
+/// Restrict it on Google Cloud to your app package/sha or HTTP referrers before shipping.
+
+class UberHomeScreen extends StatefulWidget {
+  const UberHomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<UberHomeScreen> createState() => _UberHomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  // Map controller for programmatic control
-  final MapController _mapController = MapController();
+class _UberHomeScreenState extends State<UberHomeScreen>
+    with SingleTickerProviderStateMixin {
+  final Completer<GoogleMapController> _controller = Completer();
+  LatLng? _currentLatLng;
+  String _currentAddress = 'Detecting location...';
+  String _paymentMethod = 'cash';
+  String _cardLast4 = '';
+  bool _isRequesting = false;
+  Timer? _driverTimer;
 
-  // Current user location
-  LatLng? _currentLocation;
-  String _currentAddress = 'Getting location...';
+  // Ride options
+  final List<Map<String, String>> _rideTypes = [
+    {'key': 'economy', 'name': 'Economy', 'eta': '3 min', 'price': '\$6'},
+    {'key': 'standard', 'name': 'Standard', 'eta': '4 min', 'price': '\$8'},
+    {'key': 'premium', 'name': 'Premium', 'eta': '6 min', 'price': '\$15'},
+    {'key': 'xl', 'name': 'XL', 'eta': '5 min', 'price': '\$12'},
+  ];
+  String _selectedRide = 'economy';
 
-  // Selected destination
-  LatLng? _destinationLocation;
-  String? _destinationAddress;
-
-  // Route points for drawing polyline
-  List<LatLng> _routePoints = [];
-
-  // Bottom sheet visibility
-  bool _isBottomSheetVisible = false;
-
-  // Loading states
-  bool _isLoadingLocation = true;
-  bool _isRequestingRide = false;
-
-  final _supabase = Supabase.instance.client;
+  // Map markers for nearby drivers (demo)
+  final Set<Marker> _markers = {};
 
   @override
   void initState() {
     super.initState();
-    _getCurrentLocation();
+    _resolveCurrentLocation();
+    _loadPaymentInfo();
+    // Demo nearby drivers (in a real app these would be fetched from your backend)
   }
 
-  /// Get current user location
-  Future<void> _getCurrentLocation() async {
+  @override
+  void dispose() {
+    _driverTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadPaymentInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    _paymentMethod = prefs.getString('payment_method') ?? 'cash';
+    _cardLast4 = prefs.getString('card_last4') ?? '';
+    setState(() {});
+  }
+
+  Future<void> _resolveCurrentLocation() async {
     try {
-      // Check location permissions
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          _currentAddress = 'Location services disabled';
-          _isLoadingLocation = false;
-        });
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            _currentAddress = 'Location permission denied';
-            _isLoadingLocation = false;
-          });
-          return;
-        }
+        await Geolocator.requestPermission();
       }
 
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _currentAddress = 'Location permission permanently denied';
-          _isLoadingLocation = false;
-        });
-        return;
-      }
-
-      // Get current position
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
       );
 
-      // Get address from coordinates
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      String address = placemarks.isNotEmpty
-          ? '${placemarks[0].street}, ${placemarks[0].locality}'
-          : '${position.latitude}, ${position.longitude}';
-
       setState(() {
-        _currentLocation = LatLng(position.latitude, position.longitude);
-        _currentAddress = address;
-        _isLoadingLocation = false;
+        _currentLatLng = LatLng(pos.latitude, pos.longitude);
+        _currentAddress =
+            'Pickup: ${pos.latitude.toStringAsFixed(3)}, ${pos.longitude.toStringAsFixed(3)}';
       });
 
-      // Center map on user location
-      _mapController.move(_currentLocation!, 13.0);
-    } catch (e) {
-      setState(() {
-        _currentAddress = 'Error getting location: $e';
-        _isLoadingLocation = false;
-      });
-    }
-  }
-
-  /// Refresh current location
-  Future<void> _refreshLocation() async {
-    setState(() {
-      _isLoadingLocation = true;
-    });
-    await _getCurrentLocation();
-  }
-
-  /// Select destination from search
-  Future<void> _selectDestination() async {
-    final result = await Navigator.of(context).push<Map<String, dynamic>>(
-      MaterialPageRoute(builder: (_) => const DestinationSearchScreen()),
-    );
-
-    if (result != null && _currentLocation != null) {
-      setState(() {
-        _destinationLocation = LatLng(
-          result['latitude'] as double,
-          result['longitude'] as double,
-        );
-        _destinationAddress = result['address'] as String;
-        _isBottomSheetVisible = true;
-      });
-
-      // Draw route
-      _drawRoute();
-    }
-  }
-
-  /// Draw route between current location and destination
-  void _drawRoute() {
-    if (_currentLocation != null && _destinationLocation != null) {
-      setState(() {
-        _routePoints = [_currentLocation!, _destinationLocation!];
-      });
-
-      // Fit map to show both points
-      final bounds = LatLngBounds.fromPoints(_routePoints);
-      _mapController.fitCamera(
-        CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(100)),
-      );
-    }
-  }
-
-  /// Calculate distance between two points
-  double _calculateDistance() {
-    if (_currentLocation == null || _destinationLocation == null) {
-      return 0.0;
-    }
-    final distance = Distance();
-    return distance.as(
-      LengthUnit.Kilometer,
-      _currentLocation!,
-      _destinationLocation!,
-    );
-  }
-
-  /// Request a ride
-  Future<void> _requestRide() async {
-    if (_currentLocation == null || _destinationLocation == null) {
-      return;
-    }
-
-    final user = _supabase.auth.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please login to request a ride'),
-          backgroundColor: AppColors.error,
+      // Add a pulsing-like circle (static radius here; you can animate later)
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('you'),
+          position: _currentLatLng!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
+          infoWindow: const InfoWindow(title: 'You'),
         ),
       );
-      return;
-    }
 
-    setState(() {
-      _isRequestingRide = true;
-    });
-
-    try {
-      final distance = _calculateDistance();
-      final estimatedDuration = (distance * 2)
-          .round(); // Rough estimate: 2 min per km
-      final fare = (distance * 2.5).toStringAsFixed(
-        2,
-      ); // Rough estimate: $2.5 per km
-
-      // Save ride to Supabase (if you have a rides table)
-      // await _supabase.from('rides').insert({
-      //   'user_id': user.id,
-      //   'pickup_latitude': _currentLocation!.latitude,
-      //   'pickup_longitude': _currentLocation!.longitude,
-      //   'pickup_address': _currentAddress,
-      //   'destination_latitude': _destinationLocation!.latitude,
-      //   'destination_longitude': _destinationLocation!.longitude,
-      //   'destination_address': _destinationAddress,
-      //   'distance': distance,
-      //   'fare': double.parse(fare),
-      //   'estimated_duration': estimatedDuration,
-      //   'status': 'pending',
-      // });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ride requested! Estimated fare: \$$fare'),
-            backgroundColor: AppColors.success,
+      // Nearby drivers sample
+      final nearby = [
+        LatLng(pos.latitude + 0.002, pos.longitude + 0.003),
+        LatLng(pos.latitude - 0.0025, pos.longitude - 0.002),
+      ];
+      var idx = 1;
+      for (final d in nearby) {
+        _markers.add(
+          Marker(
+            markerId: MarkerId('driver_$idx'),
+            position: d,
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueOrange,
+            ),
+            infoWindow: InfoWindow(
+              title: 'Driver $idx',
+              snippet: 'ETA: ${2 + idx} min',
+            ),
+            onTap: () {
+              _showDriverBottomSheet(idx);
+            },
           ),
         );
+        idx++;
+      }
 
-        // Clear destination after request
-        setState(() {
-          _destinationLocation = null;
-          _destinationAddress = null;
-          _routePoints.clear();
-          _isBottomSheetVisible = false;
-        });
+      // Move camera to user
+      if (_currentLatLng != null) {
+        final controller = await _controller.future;
+        controller.animateCamera(
+          CameraUpdate.newLatLngZoom(_currentLatLng!, 14.0),
+        );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error requesting ride: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRequestingRide = false;
-        });
-      }
+      setState(() {
+        _currentAddress = 'Location unavailable';
+      });
     }
   }
 
-  /// Clear destination and route
-  void _clearDestination() {
-    setState(() {
-      _destinationLocation = null;
-      _destinationAddress = null;
-      _routePoints.clear();
-      _isBottomSheetVisible = false;
+  void _showDriverBottomSheet(int id) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Driver $id',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'ETA: 3 min • Toyota Prius • Plate: ABC-123',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryPink,
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Select Driver'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _onTapPickup() async {
+    // In the real app this should open the full-screen search with recents + saved addresses
+    // For prototyping we show a simple page push.
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DestinationSearchPlaceholder()),
+    );
+  }
+
+  void _onRequestRide() {
+    // Simple request flow: check payment, then simulate assigning a driver and moving it towards user.
+    if (_currentLatLng == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Current location unknown')));
+      return;
+    }
+
+    if (_paymentMethod == 'card' && _cardLast4.isEmpty) {
+      // Ask user to add card
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No card found. Please add a card.')),
+      );
+      Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => const PaymentScreen()))
+          .then((_) => _loadPaymentInfo());
+      return;
+    }
+
+    // Simulate request
+    setState(() => _isRequesting = true);
+    final fare = _rideTypes.firstWhere(
+      (r) => r['key'] == _selectedRide,
+    )['price'];
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Ride requested • $fare')));
+
+    // Find a driver marker id (demo: pick first driver)
+    final driverMarker = _markers.firstWhere(
+      (m) => m.markerId.value.startsWith('driver_'),
+      orElse: () => Marker(
+        markerId: const MarkerId('driver_none'),
+        position: LatLng(
+          _currentLatLng!.latitude + 0.003,
+          _currentLatLng!.longitude + 0.003,
+        ),
+      ),
+    );
+    if (driverMarker.markerId.value == 'driver_none') {
+      setState(() => _isRequesting = false);
+      return;
+    }
+
+    // Show bottom sheet tracking
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (ctx) {
+        return RideProgressSheet(
+          onCancel: () {
+            _driverTimer?.cancel();
+            setState(() => _isRequesting = false);
+            Navigator.of(ctx).pop();
+          },
+        );
+      },
+    );
+
+    // Start moving the driver marker toward the user
+    _driverTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      final id = driverMarker.markerId;
+      final current = _markers.firstWhere((m) => m.markerId == id).position;
+      final target = _currentLatLng!;
+      final latStep = (target.latitude - current.latitude) * 0.3;
+      final lngStep = (target.longitude - current.longitude) * 0.3;
+      final newPos = LatLng(
+        current.latitude + latStep,
+        current.longitude + lngStep,
+      );
+
+      // replace marker
+      _markers.removeWhere((m) => m.markerId == id);
+      _markers.add(
+        Marker(
+          markerId: id,
+          position: newPos,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueOrange,
+          ),
+        ),
+      );
+      setState(() {});
+
+      // If close enough, stop
+      final distance =
+          ((newPos.latitude - target.latitude).abs() +
+          (newPos.longitude - target.longitude).abs());
+      if (distance < 0.0002) {
+        _driverTimer?.cancel();
+        setState(() => _isRequesting = false);
+        // Close bottom sheet and show arrived message
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Driver has arrived')));
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final titleStyle = Theme.of(
+      context,
+    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700);
+
     return Scaffold(
-      body: Stack(
-        children: [
-          // Map view
-          if (_currentLocation != null)
-            FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _currentLocation!,
-                initialZoom: AppConstants.defaultZoom ?? 13.0,
-                minZoom: AppConstants.minZoom ?? 1.0,
-                maxZoom: AppConstants.minZoom ?? 18.0,
-                interactionOptions: const InteractionOptions(
-                  flags: InteractiveFlag.all,
-                ),
-              ),
-              children: [
-                // OpenStreetMap tile layer
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.zekri.deplacetoi',
-                ),
-                // Route polyline
-                if (_routePoints.length >= 2)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _routePoints,
-                        strokeWidth: 4,
-                        color: AppColors.primaryPink,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            // Google Map full-bleed
+            Positioned.fill(
+              child: _currentLatLng == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: _currentLatLng!,
+                        zoom: 14.0,
+                      ),
+                      myLocationEnabled: true,
+                      myLocationButtonEnabled: false,
+                      markers: _markers,
+                      onMapCreated: (GoogleMapController controller) {
+                        if (!_controller.isCompleted) {
+                          _controller.complete(controller);
+                        }
+                      },
+                      mapToolbarEnabled: false,
+                      // You can set mapStyle here to match aesthetic (muted colors)
+                    ),
+            ),
+
+            // Top bar: hamburger | title | avatar with online dot
+            Positioned(
+              top: 12,
+              left: 12,
+              right: 12,
+              child: Row(
+                children: [
+                  // Hamburger
+                  Material(
+                    color: Colors.white,
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: IconButton(
+                      onPressed: () {},
+                      icon: Icon(Icons.menu, color: AppColors.primaryPink),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text('Where to?', style: titleStyle),
+                  const Spacer(),
+                  // Avatar with online dot
+                  Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.white,
+                        child: Icon(
+                          Icons.person,
+                          color: AppColors.primaryPink,
+                          size: 20,
+                        ),
+                      ),
+                      Positioned(
+                        right: 2,
+                        bottom: 2,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.5),
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                // Markers layer
-                MarkerLayer(
-                  markers: [
-                    // Current location marker
-                    if (_currentLocation != null)
-                      Marker(
-                        point: _currentLocation!,
-                        width: 40,
-                        height: 40,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.blue,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.blue.withOpacity(0.5),
-                                blurRadius: 10,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.location_on,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                    // Destination marker
-                    if (_destinationLocation != null)
-                      Marker(
-                        point: _destinationLocation!,
-                        width: 40,
-                        height: 40,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.success,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.success.withOpacity(0.5),
-                                blurRadius: 10,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.place,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            )
-          else
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (_isLoadingLocation)
-                    CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        AppColors.primaryPink,
-                      ),
-                    )
-                  else
-                    Column(
-                      children: [
-                        Icon(
-                          Icons.location_off,
-                          size: 64,
-                          color: AppColors.grey,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _currentAddress,
-                          style: TextStyle(color: AppColors.grey),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 20),
-                        ElevatedButton(
-                          onPressed: _refreshLocation,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primaryPink,
-                            foregroundColor: AppColors.white,
-                          ),
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
                 ],
               ),
             ),
-          // Top search bar
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _selectDestination,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(Icons.search, color: AppColors.primaryPink),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _destinationAddress ?? 'Where to?',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: _destinationAddress != null
-                                    ? AppColors.black
-                                    : AppColors.grey,
-                              ),
-                            ),
-                          ),
-                        ],
+
+            // Floating pickup/search card (slightly above center)
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.18,
+              left: 20,
+              right: 20,
+              child: GestureDetector(
+                onTap: _onTapPickup,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
                       ),
-                    ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.place, color: Colors.blueAccent),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Enter destination',
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _currentAddress,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.chevron_right,
+                            color: Colors.blue,
+                          ),
+                          onPressed: _onTapPickup,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-          ),
-          // Floating action buttons
-          Positioned(
-            bottom: _isBottomSheetVisible ? 280 : 120,
-            right: 16,
-            child: Column(
-              children: [
-                // Recenter on location button
-                FloatingActionButton(
-                  heroTag: 'location',
-                  onPressed: _refreshLocation,
-                  backgroundColor: AppColors.white,
-                  child: Icon(Icons.my_location, color: AppColors.primaryPink),
-                ),
-                const SizedBox(height: 12),
-                // Menu button
-                FloatingActionButton(
-                  heroTag: 'menu',
-                  onPressed: () {
-                    // Show menu or profile
-                    showModalBottomSheet(
-                      context: context,
-                      backgroundColor: Colors.transparent,
-                      builder: (context) => Container(
-                        decoration: const BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(24),
+
+            // Quick ride options row floating above bottom
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 120,
+              child: SizedBox(
+                height: 110,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _rideTypes.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final ride = _rideTypes[index];
+                    final selected = ride['key'] == _selectedRide;
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedRide = ride['key']!),
+                      child: Container(
+                        width: 160,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.primaryPink.withOpacity(0.08)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 8,
+                            ),
+                          ],
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.primaryPink
+                                : Colors.transparent,
+                            width: 1.5,
                           ),
                         ),
-                        padding: const EdgeInsets.all(24),
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ListTile(
-                              leading: Icon(
-                                Icons.person,
-                                color: AppColors.primaryPink,
-                              ),
-                              title: const Text('Profile'),
-                              onTap: () {
-                                Navigator.pop(context);
-                                // Navigate to profile
-                              },
-                            ),
-                            ListTile(
-                              leading: Icon(
-                                Icons.history,
-                                color: AppColors.primaryPink,
-                              ),
-                              title: const Text('Ride History'),
-                              onTap: () {
-                                Navigator.pop(context);
-                                // Navigate to ride history
-                              },
-                            ),
-                            ListTile(
-                              leading: Icon(
-                                Icons.logout,
-                                color: AppColors.error,
-                              ),
-                              title: const Text('Logout'),
-                              onTap: () async {
-                                Navigator.pop(context);
-                                await _supabase.auth.signOut();
-                                if (mounted) {
-                                  Navigator.of(context).pushAndRemoveUntil(
-                                    MaterialPageRoute(
-                                      builder: (_) => const LoginScreen(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.directions_car,
+                                      color: selected
+                                          ? AppColors.primaryPink
+                                          : Colors.black54,
+                                      size: 20,
                                     ),
-                                    (route) => false,
-                                  );
-                                }
-                              },
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      ride['name']!,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: selected
+                                            ? AppColors.primaryPink
+                                            : Colors.black,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  ride['price']!,
+                                  style: TextStyle(
+                                    color: selected
+                                        ? AppColors.primaryPink
+                                        : Colors.black,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            Text(
+                              ride['eta']!,
+                              style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
                         ),
                       ),
                     );
                   },
-                  backgroundColor: AppColors.white,
-                  child: Icon(Icons.menu, color: AppColors.primaryPink),
-                ),
-              ],
-            ),
-          ),
-          // Bottom sheet for ride details
-          if (_isBottomSheetVisible && _destinationLocation != null)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: AppColors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Handle bar
-                    Container(
-                      margin: const EdgeInsets.only(top: 12),
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.grey.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Pickup location
-                          Row(
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  color: AppColors.primaryPink,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _currentAddress,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          // Destination
-                          Row(
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  color: AppColors.success,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _destinationAddress ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: _clearDestination,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                          // Ride details
-                          Row(
-                            children: [
-                              _buildDetailItem(
-                                Icons.straighten,
-                                '${_calculateDistance().toStringAsFixed(1)} km',
-                              ),
-                              const SizedBox(width: 20),
-                              _buildDetailItem(
-                                Icons.access_time,
-                                '${(_calculateDistance() * 2).round()} min',
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          // Fare estimate
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryPink.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Estimated Fare',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                Text(
-                                  '\$${(_calculateDistance() * 2.5).toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primaryPink,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          // Request ride button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 56,
-                            child: ElevatedButton(
-                              onPressed: _isRequestingRide
-                                  ? null
-                                  : _requestRide,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primaryPink,
-                                foregroundColor: AppColors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: _isRequestingRide
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              AppColors.white,
-                                            ),
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Request Ride',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
-        ],
+
+            // Bottom CTA + summary
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 24,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.06),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Pickup • ${_currentAddress.split(',').first} — Payment: Card ••••1234',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryPink,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: _onRequestRide,
+                          child: Text(
+                            'Request Ride',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
 
-  Widget _buildDetailItem(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: AppColors.primaryPink),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: const TextStyle(fontSize: 14, color: AppColors.darkGrey),
-        ),
-      ],
-    );
-  }
+class DestinationSearchPlaceholder extends StatelessWidget {
+  const DestinationSearchPlaceholder({super.key});
 
   @override
-  void dispose() {
-    _mapController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Search destination')),
+      body: Center(
+        child: Text(
+          'Full-screen search goes here',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+      ),
+    );
+  }
+}
+
+/// Simple bottom sheet shown during ride progress. Calls [onCancel] when user cancels.
+class RideProgressSheet extends StatelessWidget {
+  final VoidCallback onCancel;
+  const RideProgressSheet({required this.onCancel, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Driver on the way',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Text('3 min', style: Theme.of(context).textTheme.bodyLarge),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Toyota Prius • Plate: ABC-123',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onCancel,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey.shade300,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Cancel ride'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryPink,
+                  ),
+                  child: const Text('Contact driver'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
   }
 }

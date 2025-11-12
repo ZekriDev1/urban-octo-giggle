@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
-import 'login_screen.dart';
 
 /// Modern sign up screen with Supabase authentication
 class SignUpScreen extends StatefulWidget {
@@ -45,20 +44,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
       await _supabase.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-        data: {
-          'name': _nameController.text.trim(),
-        },
+        data: {'name': _nameController.text.trim()},
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Account created successfully! Please check your email to verify.'),
+            content: Text(
+              'Account created successfully! Please check your email to verify.',
+            ),
             backgroundColor: AppColors.success,
             duration: Duration(seconds: 4),
           ),
         );
-        
+
         // Navigate back to login
         Navigator.of(context).pop();
       }
@@ -124,10 +123,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Sign up to get started',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: AppColors.grey,
-                  ),
+                  style: TextStyle(fontSize: 16, color: AppColors.grey),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 50),
@@ -139,8 +135,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   decoration: InputDecoration(
                     labelText: 'Full Name',
                     hintText: 'Enter your full name',
-                    prefixIcon: Icon(Icons.person_outlined, color: AppColors.primaryPink),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    prefixIcon: Icon(
+                      Icons.person_outlined,
+                      color: AppColors.primaryPink,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -160,8 +162,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   decoration: InputDecoration(
                     labelText: 'Email',
                     hintText: 'Enter your email',
-                    prefixIcon: Icon(Icons.email_outlined, color: AppColors.primaryPink),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    prefixIcon: Icon(
+                      Icons.email_outlined,
+                      color: AppColors.primaryPink,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -181,7 +189,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   decoration: InputDecoration(
                     labelText: 'Password',
                     hintText: 'Enter your password',
-                    prefixIcon: Icon(Icons.lock_outlined, color: AppColors.primaryPink),
+                    prefixIcon: Icon(
+                      Icons.lock_outlined,
+                      color: AppColors.primaryPink,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -195,7 +206,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         });
                       },
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -215,7 +229,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   decoration: InputDecoration(
                     labelText: 'Confirm Password',
                     hintText: 'Confirm your password',
-                    prefixIcon: Icon(Icons.lock_outlined, color: AppColors.primaryPink),
+                    prefixIcon: Icon(
+                      Icons.lock_outlined,
+                      color: AppColors.primaryPink,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscureConfirmPassword
@@ -229,7 +246,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         });
                       },
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -280,7 +300,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 // Divider
                 Row(
                   children: [
-                    Expanded(child: Divider(color: AppColors.grey.withOpacity(0.3))),
+                    Expanded(
+                      child: Divider(color: AppColors.grey.withOpacity(0.3)),
+                    ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Text(
@@ -288,7 +310,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         style: TextStyle(color: AppColors.grey),
                       ),
                     ),
-                    Expanded(child: Divider(color: AppColors.grey.withOpacity(0.3))),
+                    Expanded(
+                      child: Divider(color: AppColors.grey.withOpacity(0.3)),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 30),
@@ -323,4 +347,3 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 }
-

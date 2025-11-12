@@ -1,9 +1,9 @@
+import 'package:deplacetoi/screens/home/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
-import '../home/home_screen.dart';
 
 /// Modern login screen with Supabase authentication
 class LoginScreen extends StatefulWidget {
@@ -46,9 +46,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (mounted) {
         // Navigate to home screen
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        Navigator.of(
+          context,
+        ).pushReplacement(MaterialPageRoute(builder: (_) => UberHomeScreen()));
       }
     } catch (e) {
       if (mounted) {
@@ -104,10 +104,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Sign in to continue',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: AppColors.grey,
-                  ),
+                  style: TextStyle(fontSize: 16, color: AppColors.grey),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 50),
@@ -118,8 +115,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: InputDecoration(
                     labelText: 'Email',
                     hintText: 'Enter your email',
-                    prefixIcon: Icon(Icons.email_outlined, color: AppColors.primaryPink),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    prefixIcon: Icon(
+                      Icons.email_outlined,
+                      color: AppColors.primaryPink,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -139,7 +142,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: InputDecoration(
                     labelText: 'Password',
                     hintText: 'Enter your password',
-                    prefixIcon: Icon(Icons.lock_outlined, color: AppColors.primaryPink),
+                    prefixIcon: Icon(
+                      Icons.lock_outlined,
+                      color: AppColors.primaryPink,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -153,7 +159,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         });
                       },
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -225,7 +234,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Divider
                 Row(
                   children: [
-                    Expanded(child: Divider(color: AppColors.grey.withOpacity(0.3))),
+                    Expanded(
+                      child: Divider(color: AppColors.grey.withOpacity(0.3)),
+                    ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Text(
@@ -233,7 +244,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: TextStyle(color: AppColors.grey),
                       ),
                     ),
-                    Expanded(child: Divider(color: AppColors.grey.withOpacity(0.3))),
+                    Expanded(
+                      child: Divider(color: AppColors.grey.withOpacity(0.3)),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 30),
@@ -248,7 +261,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextButton(
                       onPressed: () {
                         Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const SignUpScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const SignUpScreen(),
+                          ),
                         );
                       },
                       child: Text(
