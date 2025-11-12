@@ -1,6 +1,4 @@
-# DeplaceToi - Uber-Style Flutter App
-
-A full-featured Flutter mobile app inspired by Uber, built with Supabase backend and Google Maps integration, featuring the DeplaceToi pink accent color theme.
+# DeplaceToi \
 
 ## Features
 
