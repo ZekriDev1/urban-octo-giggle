@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import 'destination_search_screen.dart';
+import '../auth/login_screen.dart';
 
 /// Home screen with map, location, and ride booking
 class HomeScreen extends StatefulWidget {
@@ -19,21 +20,21 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Map controller for programmatic control
   final MapController _mapController = MapController();
-  
+
   // Current user location
   LatLng? _currentLocation;
   String _currentAddress = 'Getting location...';
-  
+
   // Selected destination
   LatLng? _destinationLocation;
   String? _destinationAddress;
-  
+
   // Route points for drawing polyline
   List<LatLng> _routePoints = [];
-  
+
   // Bottom sheet visibility
   bool _isBottomSheetVisible = false;
-  
+
   // Loading states
   bool _isLoadingLocation = true;
   bool _isRequestingRide = false;
@@ -101,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       // Center map on user location
-      _mapController.move(_currentLocation!, AppConstants.defaultZoom);
+      _mapController.move(_currentLocation!, 13.0);
     } catch (e) {
       setState(() {
         _currentAddress = 'Error getting location: $e';
@@ -121,9 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Select destination from search
   Future<void> _selectDestination() async {
     final result = await Navigator.of(context).push<Map<String, dynamic>>(
-      MaterialPageRoute(
-        builder: (_) => const DestinationSearchScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const DestinationSearchScreen()),
     );
 
     if (result != null && _currentLocation != null) {
@@ -145,19 +144,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void _drawRoute() {
     if (_currentLocation != null && _destinationLocation != null) {
       setState(() {
-        _routePoints = [
-          _currentLocation!,
-          _destinationLocation!,
-        ];
+        _routePoints = [_currentLocation!, _destinationLocation!];
       });
 
       // Fit map to show both points
       final bounds = LatLngBounds.fromPoints(_routePoints);
       _mapController.fitCamera(
-        CameraFit.bounds(
-          bounds: bounds,
-          padding: const EdgeInsets.all(100),
-        ),
+        CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(100)),
       );
     }
   }
@@ -167,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_currentLocation == null || _destinationLocation == null) {
       return 0.0;
     }
-    const distance = Distance();
+    final distance = Distance();
     return distance.as(
       LengthUnit.Kilometer,
       _currentLocation!,
@@ -198,8 +191,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final distance = _calculateDistance();
-      final estimatedDuration = (distance * 2).round(); // Rough estimate: 2 min per km
-      final fare = (distance * 2.5).toStringAsFixed(2); // Rough estimate: $2.5 per km
+      final estimatedDuration = (distance * 2)
+          .round(); // Rough estimate: 2 min per km
+      final fare = (distance * 2.5).toStringAsFixed(
+        2,
+      ); // Rough estimate: $2.5 per km
 
       // Save ride to Supabase (if you have a rides table)
       // await _supabase.from('rides').insert({
@@ -271,9 +267,9 @@ class _HomeScreenState extends State<HomeScreen> {
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: _currentLocation!,
-                initialZoom: AppConstants.defaultZoom,
-                minZoom: AppConstants.minZoom,
-                maxZoom: AppConstants.maxZoom,
+                initialZoom: AppConstants.defaultZoom ?? 13.0,
+                minZoom: AppConstants.minZoom ?? 1.0,
+                maxZoom: AppConstants.minZoom ?? 18.0,
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.all,
                 ),
@@ -361,7 +357,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   if (_isLoadingLocation)
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryPink),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.primaryPink,
+                      ),
                     )
                   else
                     Column(
@@ -451,10 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   heroTag: 'location',
                   onPressed: _refreshLocation,
                   backgroundColor: AppColors.white,
-                  child: Icon(
-                    Icons.my_location,
-                    color: AppColors.primaryPink,
-                  ),
+                  child: Icon(Icons.my_location, color: AppColors.primaryPink),
                 ),
                 const SizedBox(height: 12),
                 // Menu button
@@ -468,14 +463,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       builder: (context) => Container(
                         decoration: const BoxDecoration(
                           color: AppColors.white,
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(24),
+                          ),
                         ),
                         padding: const EdgeInsets.all(24),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             ListTile(
-                              leading: Icon(Icons.person, color: AppColors.primaryPink),
+                              leading: Icon(
+                                Icons.person,
+                                color: AppColors.primaryPink,
+                              ),
                               title: const Text('Profile'),
                               onTap: () {
                                 Navigator.pop(context);
@@ -483,7 +483,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                             ),
                             ListTile(
-                              leading: Icon(Icons.history, color: AppColors.primaryPink),
+                              leading: Icon(
+                                Icons.history,
+                                color: AppColors.primaryPink,
+                              ),
                               title: const Text('Ride History'),
                               onTap: () {
                                 Navigator.pop(context);
@@ -491,7 +494,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                             ),
                             ListTile(
-                              leading: Icon(Icons.logout, color: AppColors.error),
+                              leading: Icon(
+                                Icons.logout,
+                                color: AppColors.error,
+                              ),
                               title: const Text('Logout'),
                               onTap: () async {
                                 Navigator.pop(context);
@@ -654,7 +660,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             width: double.infinity,
                             height: 56,
                             child: ElevatedButton(
-                              onPressed: _isRequestingRide ? null : _requestRide,
+                              onPressed: _isRequestingRide
+                                  ? null
+                                  : _requestRide,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primaryPink,
                                 foregroundColor: AppColors.white,
@@ -669,9 +677,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                       height: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                          AppColors.white,
-                                        ),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              AppColors.white,
+                                            ),
                                       ),
                                     )
                                   : const Text(
@@ -702,10 +711,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 8),
         Text(
           text,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppColors.darkGrey,
-          ),
+          style: const TextStyle(fontSize: 14, color: AppColors.darkGrey),
         ),
       ],
     );
@@ -717,4 +723,3 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 }
-
