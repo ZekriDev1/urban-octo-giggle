@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import '../../core/constants/app_colors.dart';
 import '../auth/login_screen.dart';
 
-/// Animated splash screen with smooth transitions
+/// Splash screen with Lottie animation
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -10,67 +11,18 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _rotationAnimation;
-
+class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    
-    // Initialize animation controller
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 2500),
-      vsync: this,
-    );
-    
-    // Fade in animation
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
-    ));
-    
-    // Scale animation with bounce effect
-    _scaleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.2, 0.8, curve: Curves.elasticOut),
-    ));
-    
-    // Rotation animation
-    _rotationAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.0, 1.0, curve: Curves.easeInOut),
-    ));
-    
-    // Start animation
-    _controller.forward();
-    
-    // Navigate to login after animation completes
-    Future.delayed(const Duration(milliseconds: 3000), () {
+    // Navigate to login after animation completes (3 seconds)
+    Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   @override
@@ -89,77 +41,28 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ),
         child: Center(
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              return FadeTransition(
-                opacity: _fadeAnimation,
-                child: Transform.scale(
-                  scale: _scaleAnimation.value,
-                  child: Transform.rotate(
-                    angle: _rotationAnimation.value * 0.1,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Animated logo container
-                        Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryPink,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.primaryPink.withOpacity(0.4),
-                                blurRadius: 30,
-                                spreadRadius: 10,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.directions_car,
-                            size: 60,
-                            color: AppColors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 30),
-                        // App name with animation
-                        Text(
-                          'DeplaceToi',
-                          style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primaryPink,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Your ride, your way',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: AppColors.grey,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        const SizedBox(height: 40),
-                        // Loading indicator
-                        SizedBox(
-                          width: 40,
-                          height: 40,
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              AppColors.primaryPink,
-                            ),
-                            strokeWidth: 3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Logo
+              Image.asset(
+                'assets/icons/logo.png',
+                width: 200,
+                height: 200,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 20),
+              // Lottie animation
+              SizedBox(
+                width: 200,
+                height: 200,
+                child: Lottie.asset(
+                  'assets/animations/Animation - 1748773057383.json',
+                  fit: BoxFit.contain,
+                  repeat: true,
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ),
       ),

@@ -11,6 +11,10 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  # Lottie animations
+  lottie: ^3.1.2
+  # Supabase authentication
+  supabase_flutter: ^2.5.6
 
 dev_dependencies:
   flutter_test:
@@ -39,3 +43,6 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/animations/
+    - assets/icons/logo.png
