@@ -11,7 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geocoding/geocoding.dart' as geo;
 
 import '../../core/constants/app_colors.dart';
-import '../profile/profile_screen.dart';
+import '../menu/main_menu.dart';
 
 class PremiumHomeScreen extends StatefulWidget {
   const PremiumHomeScreen({super.key});
@@ -288,9 +288,7 @@ class _PremiumHomeScreenState extends State<PremiumHomeScreen> {
             ),
             child: InkWell(
               onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                );
+                Scaffold.of(context).openDrawer();
               },
               borderRadius: BorderRadius.circular(12),
               child: Container(
@@ -782,6 +780,7 @@ class _PremiumHomeScreenState extends State<PremiumHomeScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
+      drawer: const MainMenu(),
       body: SafeArea(
         child: Stack(
           children: [

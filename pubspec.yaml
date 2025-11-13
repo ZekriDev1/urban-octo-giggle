@@ -26,6 +26,10 @@ dependencies:
   shared_preferences: ^2.1.1
   # Stripe SDK for Flutter (UI + native payments). See README and platform setup notes before enabling.
   flutter_stripe: ^9.0.0
+  # Image picker for profile pictures
+  image_picker: ^1.0.0
+  # URL launcher for email, phone, and web links
+  url_launcher: ^6.2.0
 
 dev_dependencies:
   flutter_test:
