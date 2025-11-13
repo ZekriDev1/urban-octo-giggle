@@ -74,10 +74,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (last4 != null && last4.trim().length == 4) {
       await _save('card', last4: last4.trim());
     } else if (last4 != null) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Please enter 4 digits')));
+      }
     }
   }
 

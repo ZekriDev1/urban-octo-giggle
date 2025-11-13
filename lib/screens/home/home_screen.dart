@@ -1,67 +1,124 @@
+// Complete redesign of the Home Screen: premium modern layout with animations,
+// ride options, payment toggle and glassmorphism request button.
+//
+// Integrates with existing project pieces (AppColors, PaymentScreen).
+// Uses google_maps_flutter and geolocator for core map and location logic.
+// Note: Make sure required packages are in pubspec.yaml:
+//   google_maps_flutter, geolocator, shared_preferences
+//
+// This file aims to keep the existing behavior while dramatically improving the UI.
+
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../core/constants/app_colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../profile/profile_screen.dart';
+
+import '../../core/constants/app_colors.dart';
 import '../payments/payment_screen.dart';
+import '../profile/profile_screen.dart';
 
-/// Uber-style Home Screen (modern, minimal, functional)
-///
-/// Notes:
-/// - Uses the app's `AppColors.primaryPink` and system font (inherited from app theme).
-/// - This file uses `google_maps_flutter` for native Google Maps (Android/iOS).
-/// - You must configure the Google Maps API key in platform files:
-///   * Android: android/app/src/main/AndroidManifest.xml -> <application>
-///       <meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_API_KEY"/>
-///   * iOS: ios/Runner/AppDelegate.swift -> GMSServices.provideAPIKey("YOUR_API_KEY")
-///
-/// Prototyping key provided (DO NOT ship with this key):
-/// AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao
-/// Restrict it on Google Cloud to your app package/sha or HTTP referrers before shipping.
-
-class UberHomeScreen extends StatefulWidget {
-  const UberHomeScreen({super.key});
+class PremiumHomeScreen extends StatefulWidget {
+  const PremiumHomeScreen({super.key});
 
   @override
-  State<UberHomeScreen> createState() => _UberHomeScreenState();
+  State<PremiumHomeScreen> createState() => _PremiumHomeScreenState();
 }
 
-class _UberHomeScreenState extends State<UberHomeScreen>
+class _PremiumHomeScreenState extends State<PremiumHomeScreen>
     with SingleTickerProviderStateMixin {
-  final Completer<GoogleMapController> _controller = Completer();
+  // Map controller
+  final Completer<GoogleMapController> _mapController = Completer();
+
+  // Location & selections
   LatLng? _currentLatLng;
-  String _currentAddress = 'Detecting location...';
+  LatLng? _pickupLatLng;
+  LatLng? _destinationLatLng;
+  String _pickupAddress = 'Detecting location...';
+  String _destinationAddress = 'Where to?';
+  bool _usingAutoPickup = true;
+
+  // UI state
+  bool _showRideOptions = false;
+  bool _isRequesting = false;
   String _paymentMethod = 'cash';
   String _cardLast4 = '';
-  bool _isRequesting = false;
-  Timer? _driverTimer;
+  String _selectedRideKey = 'normal';
 
-  // Ride options
-  final List<Map<String, String>> _rideTypes = [
-    {'key': 'economy', 'name': 'Economy', 'eta': '3 min', 'price': '\$6'},
-    {'key': 'standard', 'name': 'Standard', 'eta': '4 min', 'price': '\$8'},
-    {'key': 'premium', 'name': 'Premium', 'eta': '6 min', 'price': '\$15'},
-    {'key': 'xl', 'name': 'XL', 'eta': '5 min', 'price': '\$12'},
-  ];
-  String _selectedRide = 'economy';
+  // Animation controllers
+  late final AnimationController _controller;
+  late final Animation<double> _pinJumpAnimation;
+  late final Animation<double> _optionListAnim;
 
-  // Map markers for nearby drivers (demo)
+  // Demo drivers
   final Set<Marker> _markers = {};
+
+  // Ride definitions
+  final List<RideType> _rideTypes = [
+    RideType(
+      key: 'normal',
+      name: 'Normal',
+      capacity: 'Up to 4',
+      baseMultiplier: 1.0,
+      etaMinutes: 3,
+    ),
+    RideType(
+      key: 'comfort',
+      name: 'Comfort',
+      capacity: 'Spacious',
+      baseMultiplier: 1.4,
+      etaMinutes: 4,
+    ),
+    RideType(
+      key: 'moto',
+      name: 'Moto',
+      capacity: '1 passenger',
+      baseMultiplier: 0.55,
+      etaMinutes: 2,
+    ),
+    RideType(
+      key: 'xl',
+      name: 'XL Car',
+      capacity: 'Large',
+      baseMultiplier: 1.9,
+      etaMinutes: 5,
+    ),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _resolveCurrentLocation();
+
+    // Smooth UI animations
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _pinJumpAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.elasticOut,
+    );
+    _optionListAnim = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.0, 0.85, curve: Curves.easeOut),
+    );
+
     _loadPaymentInfo();
-    // Demo nearby drivers (in a real app these would be fetched from your backend)
+    _resolveCurrentLocation().then((_) {
+      // small delay and show options
+      Future.delayed(const Duration(milliseconds: 400), () {
+        setState(() => _showRideOptions = true);
+        _controller.forward();
+      });
+    });
   }
 
   @override
   void dispose() {
-    _driverTimer?.cancel();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -75,105 +132,100 @@ class _UberHomeScreenState extends State<UberHomeScreen>
   Future<void> _resolveCurrentLocation() async {
     try {
       final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         await Geolocator.requestPermission();
       }
 
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
       );
+      _currentLatLng = LatLng(pos.latitude, pos.longitude);
+      _pickupLatLng = _currentLatLng;
 
-      setState(() {
-        _currentLatLng = LatLng(pos.latitude, pos.longitude);
-        _currentAddress =
-            'Pickup: ${pos.latitude.toStringAsFixed(3)}, ${pos.longitude.toStringAsFixed(3)}';
-      });
+      _pickupAddress =
+          'Pickup: ${pos.latitude.toStringAsFixed(3)}, ${pos.longitude.toStringAsFixed(3)}';
 
-      // Add a pulsing-like circle (static radius here; you can animate later)
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('you'),
-          position: _currentLatLng!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
-          infoWindow: const InfoWindow(title: 'You'),
-        ),
-      );
+      _addDemoDrivers(pos.latitude, pos.longitude);
 
-      // Nearby drivers sample
-      final nearby = [
-        LatLng(pos.latitude + 0.002, pos.longitude + 0.003),
-        LatLng(pos.latitude - 0.0025, pos.longitude - 0.002),
-      ];
-      var idx = 1;
-      for (final d in nearby) {
-        _markers.add(
-          Marker(
-            markerId: MarkerId('driver_$idx'),
-            position: d,
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueOrange,
-            ),
-            infoWindow: InfoWindow(
-              title: 'Driver $idx',
-              snippet: 'ETA: ${2 + idx} min',
-            ),
-            onTap: () {
-              _showDriverBottomSheet(idx);
-            },
-          ),
-        );
-        idx++;
-      }
-
-      // Move camera to user
-      if (_currentLatLng != null) {
-        final controller = await _controller.future;
+      if (_mapController.isCompleted) {
+        final controller = await _mapController.future;
         controller.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentLatLng!, 14.0),
+          CameraUpdate.newLatLngZoom(_currentLatLng!, 14),
         );
       }
+
+      setState(() {});
     } catch (e) {
       setState(() {
-        _currentAddress = 'Location unavailable';
+        _pickupAddress = 'Location unavailable';
       });
     }
   }
 
-  void _showDriverBottomSheet(int id) {
+  void _addDemoDrivers(double lat, double lng) {
+    _markers.clear();
+    final nearby = [
+      LatLng(lat + 0.003, lng - 0.002),
+      LatLng(lat - 0.002, lng + 0.003),
+      LatLng(lat + 0.0022, lng + 0.0027),
+    ];
+
+    var idx = 1;
+    for (final loc in nearby) {
+      _markers.add(
+        Marker(
+          markerId: MarkerId('driver_$idx'),
+          position: loc,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueOrange,
+          ),
+          infoWindow: InfoWindow(
+            title: 'Driver $idx',
+            snippet: 'ETA: ${2 + idx} min',
+          ),
+          onTap: () {
+            _showDriverDetails(idx);
+          },
+        ),
+      );
+      idx++;
+    }
+  }
+
+  void _showDriverDetails(int idx) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) {
         return Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Driver $id',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                'Driver $idx',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),
-              Text(
-                'ETA: 3 min • Toyota Prius • Plate: ABC-123',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              Text('Toyota • ETA: ${2 + idx} min • Plate: XYZ-${100 + idx}'),
               const SizedBox(height: 12),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryPink,
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Select Driver'),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryPink,
+                      ),
+                      child: const Text('Select Driver'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -182,408 +234,292 @@ class _UberHomeScreenState extends State<UberHomeScreen>
     );
   }
 
-  void _onTapPickup() async {
-    // In the real app this should open the full-screen search with recents + saved addresses
-    // For prototyping we show a simple page push.
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const DestinationSearchPlaceholder()),
+  // Called when user taps the confirm pickup floating button
+  Future<void> _confirmPickupAtCenter() async {
+    if (!_mapController.isCompleted) return;
+    final controller = await _mapController.future;
+    final center = await controller.getLatLng(
+      ScreenCoordinate(
+        x: (MediaQuery.of(context).size.width / 2).round(),
+        y: (MediaQuery.of(context).size.height * 0.35).round(),
+      ),
     );
+
+    setState(() {
+      _usingAutoPickup = false;
+      _pickupLatLng = center;
+      _pickupAddress =
+          'Pickup: ${center.latitude.toStringAsFixed(3)}, ${center.longitude.toStringAsFixed(3)}';
+    });
   }
 
-  void _onRequestRide() {
-    // Simple request flow: check payment, then simulate assigning a driver and moving it towards user.
-    if (_currentLatLng == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Current location unknown')));
+  // Simple distance calc (Haversine) to compute estimated fare
+  double _distanceKm(LatLng a, LatLng b) {
+    const R = 6371; // km
+    final dLat = _deg2rad(b.latitude - a.latitude);
+    final dLon = _deg2rad(b.longitude - a.longitude);
+    final lat1 = _deg2rad(a.latitude);
+    final lat2 = _deg2rad(b.latitude);
+
+    final hav =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(hav), math.sqrt(1 - hav));
+    return R * c;
+  }
+
+  double _deg2rad(double deg) => deg * math.pi / 180.0;
+
+  String _calculateFare(RideType ride) {
+    if (_pickupLatLng == null || _destinationLatLng == null) {
+      return '--';
+    }
+    final distKm = _distanceKm(_pickupLatLng!, _destinationLatLng!);
+    // Base fare model: base + distance * per_km * multiplier
+    const base = 2.0;
+    const perKm = 1.2;
+    final raw = (base + distKm * perKm) * ride.baseMultiplier;
+    return '\$${raw.toStringAsFixed(2)}';
+  }
+
+  void _onTapDestination() async {
+    // For the prototype, open a modal that returns a dummy coordinate
+    final result = await showModalBottomSheet<_PlaceSelection>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => DestinationEntryModal(),
+    );
+
+    if (result != null) {
+      setState(() {
+        _destinationLatLng = result.latLng;
+        _destinationAddress = result.address;
+        _showRideOptions = true;
+        _controller.forward();
+      });
+
+      // Move camera to show both pickup and destination
+      if (_pickupLatLng != null && _mapController.isCompleted) {
+        final controller = await _mapController.future;
+        final bounds = LatLngBounds(
+          southwest: LatLng(
+            math.min(_pickupLatLng!.latitude, _destinationLatLng!.latitude),
+            math.min(_pickupLatLng!.longitude, _destinationLatLng!.longitude),
+          ),
+          northeast: LatLng(
+            math.max(_pickupLatLng!.latitude, _destinationLatLng!.latitude),
+            math.max(_pickupLatLng!.longitude, _destinationLatLng!.longitude),
+          ),
+        );
+        final camUpdate = CameraUpdate.newLatLngBounds(bounds, 80);
+        controller.animateCamera(camUpdate);
+      }
+    }
+  }
+
+  void _togglePaymentMethod(String method) async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _paymentMethod = method;
+    });
+    await prefs.setString('payment_method', method);
+  }
+
+  void _requestRide() {
+    if (_pickupLatLng == null || _destinationLatLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select pickup and destination')),
+      );
       return;
     }
 
     if (_paymentMethod == 'card' && _cardLast4.isEmpty) {
-      // Ask user to add card
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No card found. Please add a card.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No card on file')));
       Navigator.of(context)
           .push(MaterialPageRoute(builder: (_) => const PaymentScreen()))
           .then((_) => _loadPaymentInfo());
       return;
     }
 
-    // Simulate request
-    setState(() => _isRequesting = true);
-    final fare = _rideTypes.firstWhere(
-      (r) => r['key'] == _selectedRide,
-    )['price'];
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Ride requested • $fare')));
+    setState(() {
+      _isRequesting = true;
+    });
 
-    // Find a driver marker id (demo: pick first driver)
-    final driverMarker = _markers.firstWhere(
-      (m) => m.markerId.value.startsWith('driver_'),
-      orElse: () => Marker(
-        markerId: const MarkerId('driver_none'),
-        position: LatLng(
-          _currentLatLng!.latitude + 0.003,
-          _currentLatLng!.longitude + 0.003,
-        ),
-      ),
-    );
-    if (driverMarker.markerId.value == 'driver_none') {
-      setState(() => _isRequesting = false);
-      return;
-    }
-
-    // Show bottom sheet tracking
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      builder: (ctx) {
-        return RideProgressSheet(
-          onCancel: () {
-            _driverTimer?.cancel();
-            setState(() => _isRequesting = false);
-            Navigator.of(ctx).pop();
-          },
-        );
-      },
-    );
-
-    // Start moving the driver marker toward the user
-    _driverTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      final id = driverMarker.markerId;
-      final current = _markers.firstWhere((m) => m.markerId == id).position;
-      final target = _currentLatLng!;
-      final latStep = (target.latitude - current.latitude) * 0.3;
-      final lngStep = (target.longitude - current.longitude) * 0.3;
-      final newPos = LatLng(
-        current.latitude + latStep,
-        current.longitude + lngStep,
-      );
-
-      // replace marker
-      _markers.removeWhere((m) => m.markerId == id);
-      _markers.add(
-        Marker(
-          markerId: id,
-          position: newPos,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueOrange,
+    // Simulate a request delay
+    Future.delayed(const Duration(seconds: 2), () {
+      setState(() {
+        _isRequesting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ride requested • ${_rideTypes.firstWhere((r) => r.key == _selectedRideKey).name} • ${_paymentMethod == 'cash' ? 'Cash' : 'Card'}',
           ),
         ),
       );
-      setState(() {});
-
-      // If close enough, stop
-      final distance =
-          ((newPos.latitude - target.latitude).abs() +
-          (newPos.longitude - target.longitude).abs());
-      if (distance < 0.0002) {
-        _driverTimer?.cancel();
-        setState(() => _isRequesting = false);
-        // Close bottom sheet and show arrived message
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Driver has arrived')));
-      }
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final titleStyle = Theme.of(
-      context,
-    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700);
-
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            // Google Map full-bleed
-            Positioned.fill(
-              child: _currentLatLng == null
-                  ? const Center(child: CircularProgressIndicator())
-                  : GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: _currentLatLng!,
-                        zoom: 14.0,
-                      ),
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: false,
-                      markers: _markers,
-                      onMapCreated: (GoogleMapController controller) {
-                        if (!_controller.isCompleted) {
-                          _controller.complete(controller);
-                        }
-                      },
-                      mapToolbarEnabled: false,
-                      // You can set mapStyle here to match aesthetic (muted colors)
-                    ),
+  Widget _buildTopBar() {
+    return Positioned(
+      top: 18,
+      left: 16,
+      right: 16,
+      child: Row(
+        children: [
+          Material(
+            color: Colors.white.withOpacity(0.95),
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-
-            // Top bar: hamburger | title | avatar with online dot
-            Positioned(
-              top: 12,
-              left: 12,
-              right: 12,
-              child: Row(
-                children: [
-                  // Hamburger
-                  Material(
-                    color: Colors.white,
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: IconButton(
-                      onPressed: () {},
-                      icon: Icon(Icons.menu, color: AppColors.primaryPink),
-                    ),
-                  ),
-                  const Spacer(),
-                  Text('Where to?', style: titleStyle),
-                  const Spacer(),
-                  // Avatar with online dot
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.white,
-                        child: Icon(
-                          Icons.person,
-                          color: AppColors.primaryPink,
-                          size: 20,
-                        ),
-                      ),
-                      Positioned(
-                        right: 2,
-                        bottom: 2,
-                        child: Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: Colors.green,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+            child: InkWell(
+              onTap: () {
+                // open drawer or menu
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                child: Icon(Icons.menu, color: AppColors.primaryPink),
               ),
             ),
-
-            // Floating pickup/search card (slightly above center)
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.18,
-              left: 20,
-              right: 20,
-              child: GestureDetector(
-                onTap: _onTapPickup,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 10,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.place, color: Colors.blueAccent),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Enter destination',
-                              style: Theme.of(context).textTheme.bodyLarge
-                                  ?.copyWith(fontWeight: FontWeight.w500),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _currentAddress,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.chevron_right,
-                            color: Colors.blue,
-                          ),
-                          onPressed: _onTapPickup,
-                        ),
-                      ),
-                    ],
-                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: GestureDetector(
+              onTap: _onTapDestination,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
                 ),
-              ),
-            ),
-
-            // Quick ride options row floating above bottom
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 120,
-              child: SizedBox(
-                height: 110,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _rideTypes.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final ride = _rideTypes[index];
-                    final selected = ride['key'] == _selectedRide;
-                    return GestureDetector(
-                      onTap: () => setState(() => _selectedRide = ride['key']!),
-                      child: Container(
-                        width: 160,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? AppColors.primaryPink.withOpacity(0.08)
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 8,
-                            ),
-                          ],
-                          border: Border.all(
-                            color: selected
-                                ? AppColors.primaryPink
-                                : Colors.transparent,
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.directions_car,
-                                      color: selected
-                                          ? AppColors.primaryPink
-                                          : Colors.black54,
-                                      size: 20,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      ride['name']!,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: selected
-                                            ? AppColors.primaryPink
-                                            : Colors.black,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  ride['price']!,
-                                  style: TextStyle(
-                                    color: selected
-                                        ? AppColors.primaryPink
-                                        : Colors.black,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Spacer(),
-                            Text(
-                              ride['eta']!,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
-              ),
-            ),
-
-            // Bottom CTA + summary
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 24,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.06),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Pickup • ${_currentAddress.split(',').first} — Payment: Card ••••1234',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primaryPink,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          onPressed: _onRequestRide,
-                          child: Text(
-                            'Request Ride',
+                child: Row(
+                  children: [
+                    Icon(Icons.search, color: Colors.grey.shade600),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _destinationAddress,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 2),
+                          Text(
+                            _pickupAddress,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.white,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ProfileScreen(),
+                            ),
+                          );
+                        },
+                        icon: Icon(Icons.person, color: AppColors.primaryPink),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _centerPin(BuildContext context) {
+    return Center(
+      child: IgnorePointer(
+        ignoring: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Animated "3D" pin
+            Transform.translate(
+              offset: Offset(0, -16 * _pinJumpAnimation.value),
+              child: Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF6AA6), AppColors.primaryPink],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primaryPink.withOpacity(0.35),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // subtle shine with rotation
+                    Positioned(
+                      left: 8,
+                      top: 10,
+                      child: Container(
+                        width: 18,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        transform: Matrix4.rotationZ(-0.35),
+                      ),
+                    ),
+                    const Icon(Icons.place, color: Colors.white, size: 28),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            // small shadow
+            Container(
+              width: 34,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
           ],
@@ -591,84 +527,643 @@ class _UberHomeScreenState extends State<UberHomeScreen>
       ),
     );
   }
-}
 
-class DestinationSearchPlaceholder extends StatelessWidget {
-  const DestinationSearchPlaceholder({super.key});
+  // Fake "3D" car widget using gradients, transforms, and shadows.
+  Widget _car3DIcon({required Color color, double size = 44}) {
+    return SizedBox(
+      width: size,
+      height: size * 0.6,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // reflection layer
+          Positioned(
+            top: 0,
+            child: Transform(
+              transform: Matrix4.rotationX(0.3)..scale(1.05),
+              alignment: Alignment.center,
+              child: Container(
+                width: size * 0.9,
+                height: size * 0.45,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white.withOpacity(0.25),
+                      color.withOpacity(0.95),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.25),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // main body
+          Positioned(
+            bottom: 0,
+            child: Container(
+              width: size,
+              height: size * 0.45,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [color.withOpacity(0.95), color.withOpacity(0.7)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.12),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.16),
+                    blurRadius: 10,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRideOptions() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 160,
+      child: SizedBox(
+        height: 140,
+        child: FadeTransition(
+          opacity: _optionListAnim,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            scrollDirection: Axis.horizontal,
+            itemCount: _rideTypes.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final ride = _rideTypes[index];
+              final selected = ride.key == _selectedRideKey;
+              final fare = _calculateFare(ride);
+
+              return GestureDetector(
+                onTap: () => setState(() {
+                  _selectedRideKey = ride.key;
+                }),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOut,
+                  width: 260,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(selected ? 0.98 : 0.92),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: selected
+                          ? AppColors.primaryPink
+                          : Colors.transparent,
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(selected ? 0.12 : 0.06),
+                        blurRadius: selected ? 18 : 10,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      // 3D car
+                      _car3DIcon(color: AppColors.primaryPink, size: 64),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              ride.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              ride.capacity,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                            const Spacer(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  ride.etaMinutes != null
+                                      ? '${ride.etaMinutes} min'
+                                      : '—',
+                                  style: TextStyle(color: Colors.grey.shade700),
+                                ),
+                                Text(
+                                  fare,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.primaryPink,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentToggle() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.94),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.payment, color: Colors.grey),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Row(
+              children: [
+                // Smooth toggle style - custom segmented control
+                Expanded(
+                  child: Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Stack(
+                      children: [
+                        AnimatedPositioned(
+                          duration: const Duration(milliseconds: 350),
+                          curve: Curves.easeOut,
+                          left: _paymentMethod == 'cash'
+                              ? 0
+                              : (MediaQuery.of(context).size.width * 0.45),
+                          top: 4,
+                          bottom: 4,
+                          right: _paymentMethod == 'cash'
+                              ? (MediaQuery.of(context).size.width * 0.45)
+                              : 0,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            decoration: BoxDecoration(
+                              gradient: AppColors.primaryGradient,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primaryPink.withOpacity(
+                                    0.18,
+                                  ),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: () => _togglePaymentMethod('cash'),
+                                child: Center(
+                                  child: Text(
+                                    'Cash 💵',
+                                    style: TextStyle(
+                                      color: _paymentMethod == 'cash'
+                                          ? Colors.white
+                                          : Colors.grey.shade700,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                onTap: () => _togglePaymentMethod('card'),
+                                child: Center(
+                                  child: Text(
+                                    'Card 💳',
+                                    style: TextStyle(
+                                      color: _paymentMethod == 'card'
+                                          ? Colors.white
+                                          : Colors.grey.shade700,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _paymentMethod == 'card' ? '•••• $_cardLast4' : 'Cash',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomCTA() {
+    final ride = _rideTypes.firstWhere((r) => r.key == _selectedRideKey);
+    final estimatedFare = _calculateFare(ride);
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 18,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // summary card
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.98),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 14,
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${ride.name} • ${ride.capacity} • ${ride.etaMinutes} min • $estimatedFare',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Glassmorphism request button
+                GestureDetector(
+                  onTap: _isRequesting ? null : _requestRide,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 350),
+                    height: 48,
+                    width: 160,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      gradient: LinearGradient(
+                        colors: _isRequesting
+                            ? [
+                                AppColors.primaryPink.withOpacity(0.6),
+                                AppColors.primaryPinkLight.withOpacity(0.6),
+                              ]
+                            : [
+                                AppColors.primaryPink,
+                                AppColors.primaryPinkLight,
+                              ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryPink.withOpacity(
+                            _isRequesting ? 0.25 : 0.35,
+                          ),
+                          blurRadius: _isRequesting ? 16 : 26,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                        child: Center(
+                          child: _isRequesting
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text(
+                                      'Requesting...',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : const Text(
+                                  'Request Ride',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildPaymentToggle(),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final initialCamera = CameraPosition(
+      target: _currentLatLng ?? const LatLng(0, 0),
+      zoom: 14,
+    );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Search destination')),
-      body: Center(
-        child: Text(
-          'Full-screen search goes here',
-          style: Theme.of(context).textTheme.bodyLarge,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            // Map
+            Positioned.fill(
+              child: _currentLatLng == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : GoogleMap(
+                      initialCameraPosition: initialCamera,
+                      myLocationEnabled: true,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: false,
+                      markers: _markers.union(
+                        _pickupLatLng != null && !_usingAutoPickup
+                            ? {
+                                Marker(
+                                  markerId: const MarkerId('pickup_marker'),
+                                  position: _pickupLatLng!,
+                                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                                    BitmapDescriptor.hueRose,
+                                  ),
+                                  infoWindow: const InfoWindow(title: 'Pickup'),
+                                  draggable: true,
+                                  onDragEnd: (pos) {
+                                    setState(() {
+                                      _pickupLatLng = pos;
+                                      _pickupAddress =
+                                          'Pickup: ${pos.latitude.toStringAsFixed(3)}, ${pos.longitude.toStringAsFixed(3)}';
+                                    });
+                                  },
+                                ),
+                              }
+                            : {},
+                      ),
+                      onMapCreated: (GoogleMapController controller) {
+                        if (!_mapController.isCompleted) {
+                          _mapController.complete(controller);
+                        }
+                      },
+                    ),
+            ),
+
+            // Top UI
+            _buildTopBar(),
+
+            // Center pin (indicates map center for manual pickup)
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.28,
+              left: 0,
+              right: 0,
+              child: SizedBox(
+                height: 120,
+                child: AnimatedBuilder(
+                  animation: _pinJumpAnimation,
+                  builder: (_, __) {
+                    return Column(
+                      children: [
+                        Transform.translate(
+                          offset: Offset(0, -20 * _pinJumpAnimation.value),
+                        ),
+                        _centerPin(context),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Confirm pickup floating action
+            Positioned(
+              right: 18,
+              top: MediaQuery.of(context).size.height * 0.28 + 4,
+              child: Column(
+                children: [
+                  FloatingActionButton(
+                    backgroundColor: AppColors.primaryPink,
+                    onPressed: () async {
+                      await _confirmPickupAtCenter();
+                      _controller.reset();
+                      _controller.forward();
+                    },
+                    child: const Icon(Icons.check, color: Colors.white),
+                  ),
+                  const SizedBox(height: 8),
+                  FloatingActionButton(
+                    backgroundColor: Colors.white,
+                    mini: true,
+                    onPressed: () async {
+                      // recenter to current location
+                      if (_currentLatLng != null &&
+                          _mapController.isCompleted) {
+                        final controller = await _mapController.future;
+                        controller.animateCamera(
+                          CameraUpdate.newLatLngZoom(_currentLatLng!, 15),
+                        );
+                        setState(() {
+                          _usingAutoPickup = true;
+                          _pickupLatLng = _currentLatLng;
+                          _pickupAddress =
+                              'Pickup: ${_currentLatLng!.latitude.toStringAsFixed(3)}, ${_currentLatLng!.longitude.toStringAsFixed(3)}';
+                        });
+                      }
+                    },
+                    child: Icon(
+                      Icons.my_location,
+                      color: AppColors.primaryPink,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Ride options animated row
+            if (_showRideOptions) _buildRideOptions(),
+
+            // Bottom CTA / payment
+            _buildBottomCTA(),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Simple bottom sheet shown during ride progress. Calls [onCancel] when user cancels.
-class RideProgressSheet extends StatelessWidget {
-  final VoidCallback onCancel;
-  const RideProgressSheet({required this.onCancel, super.key});
+// Helper models & widgets
+
+class RideType {
+  final String key;
+  final String name;
+  final String capacity;
+  final double baseMultiplier;
+  final int? etaMinutes;
+
+  const RideType({
+    required this.key,
+    required this.name,
+    required this.capacity,
+    required this.baseMultiplier,
+    this.etaMinutes,
+  });
+}
+
+class _PlaceSelection {
+  final LatLng? latLng;
+  final String address;
+  const _PlaceSelection(this.latLng, this.address);
+}
+
+// A simple destination entry modal that returns only the user-entered address.
+// This removes all demo suggestions and hardcoded LatLng values so production code
+// can perform real geocoding (server-side or via a proper geocoding plugin/service).
+class DestinationEntryModal extends StatefulWidget {
+  @override
+  State<DestinationEntryModal> createState() => _DestinationEntryModalState();
+}
+
+class _DestinationEntryModalState extends State<DestinationEntryModal> {
+  final TextEditingController _controller = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.35,
+      minChildSize: 0.25,
+      maxChildSize: 0.95,
+      builder: (_, controller) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+          ),
+          child: Column(
             children: [
-              Expanded(
-                child: Text(
-                  'Driver on the way',
-                  style: Theme.of(context).textTheme.titleMedium,
+              Container(
+                width: 44,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(6),
                 ),
               ),
-              Text('3 min', style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Enter destination address or place name',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.check),
+                    onPressed: () {
+                      final address = _controller.text.trim();
+                      if (address.isEmpty) return;
+                      // Return only the address. latLng is left null so your app can
+                      // perform proper geocoding in production (or call a service).
+                      Navigator.of(context).pop(_PlaceSelection(null, address));
+                    },
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onSubmitted: (v) {
+                  final addr = v.trim();
+                  if (addr.isEmpty) return;
+                  Navigator.of(context).pop(_PlaceSelection(null, addr));
+                },
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView(
+                  controller: controller,
+                  children: [
+                    const Text(
+                      'Tip',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Enter an address or place name. Your app should perform geocoding to obtain coordinates in production.',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 12),
+                    // Kept intentionally empty of demo/test entries
+                  ],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Toyota Prius • Plate: ABC-123',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: onCancel,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey.shade300,
-                    foregroundColor: Colors.black,
-                  ),
-                  child: const Text('Cancel ride'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryPink,
-                  ),
-                  child: const Text('Contact driver'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
+        );
+      },
     );
   }
 }

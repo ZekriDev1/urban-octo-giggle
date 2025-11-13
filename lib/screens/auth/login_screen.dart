@@ -1,8 +1,10 @@
 import 'package:deplacetoi/screens/home/home_screen.dart';
+
+import 'SignUpScreen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
-import 'signup_screen.dart';
+import 'SignUpScreen.dart';
 import 'forgot_password_screen.dart';
 
 /// Modern login screen with Supabase authentication
@@ -46,9 +48,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (mounted) {
         // Navigate to home screen
-        Navigator.of(
-          context,
-        ).pushReplacement(MaterialPageRoute(builder: (_) => UberHomeScreen()));
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PremiumHomeScreen()),
+        );
       }
     } catch (e) {
       if (mounted) {
