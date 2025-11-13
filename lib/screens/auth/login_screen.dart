@@ -1,6 +1,4 @@
 import 'package:deplacetoi/screens/home/home_screen.dart';
-
-import 'SignUpScreen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
@@ -47,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (mounted) {
-        // Navigate to home screen
+        // Navigate to home screen (Uber-style)
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const PremiumHomeScreen()),
         );

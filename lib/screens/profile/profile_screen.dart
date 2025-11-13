@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
+import '../../services/auth_service.dart';
+import '../splash/splash_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -127,6 +129,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: Text(
                     'Save',
                     style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade600,
+                ),
+                onPressed: () async {
+                  final authService = AuthService();
+                  await authService.signOut();
+                  if (mounted) {
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const SplashScreen()),
+                      (route) => false,
+                    );
+                  }
+                },
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14.0),
+                  child: Text(
+                    'Sign Out',
+                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
                   ),
                 ),
               ),

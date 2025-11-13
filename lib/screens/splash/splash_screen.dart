@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import '../../core/constants/app_colors.dart';
 import '../auth/login_screen.dart';
+import '../../services/auth_service.dart';
+import '../home/home_screen.dart';
 
 /// Splash screen with Lottie animation
+/// Checks if user is logged in and routes accordingly
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -15,14 +18,32 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Navigate to login after animation completes (3 seconds)
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
+    _navigateBasedOnAuthState();
+  }
+
+  Future<void> _navigateBasedOnAuthState() async {
+    // Wait a bit so splash animation is visible (3 seconds)
+    await Future.delayed(const Duration(seconds: 3));
+
+    if (!mounted) return;
+
+    // Check if user is already logged in
+    final authService = AuthService();
+    final isLoggedIn = await authService.isUserLoggedIn();
+
+    if (mounted) {
+      if (isLoggedIn) {
+        // User is logged in, go to home screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PremiumHomeScreen()),
+        );
+      } else {
+        // User is not logged in, go to login screen
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       }
-    });
+    }
   }
 
   @override
@@ -36,15 +57,7 @@ class _SplashScreenState extends State<SplashScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo
-              Image.asset(
-                'assets/icons/logo.png',
-                width: 200,
-                height: 200,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 20),
-              // Lottie animation
+              // Lottie animation (centered)
               SizedBox(
                 width: 200,
                 height: 200,
@@ -54,15 +67,15 @@ class _SplashScreenState extends State<SplashScreen> {
                   repeat: true,
                 ),
               ),
-              const SizedBox(height: 30),
-              // Tagline text
+              const SizedBox(height: 20),
+              // App name
               Text(
-                'Fast • Cheap • Secure',
+                'DéplaceToi',
                 style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
                   color: AppColors.primaryPink,
-                  letterSpacing: 1.5,
+                  letterSpacing: 1.0,
                 ),
                 textAlign: TextAlign.center,
               ),
